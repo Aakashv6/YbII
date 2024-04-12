@@ -3,7 +3,7 @@
 1. Length - m
 2. Angle - rad
 3. Time - s
-4. Frequency - Hz
+4. Angular Frequency - rad.Hz
 5. Current - A
 6. Voltage - V
 7. B-field - G
