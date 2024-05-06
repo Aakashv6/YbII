@@ -224,26 +224,28 @@ def var_extract(dir, keywords=[["exp", 1e-3], ["power", 1e-3], ["fL", 1e12], ["d
 
 def fit_data(dir, t_exp, df, p, d0, fit_override=None, param_init=None, constraints=None, plot_save=True, save_data=False):
 
-    # Get a list of file names in the directory
-    file_names = os.listdir(dir)
+    exp_params = np.loadtxt("C:/Users/aak6a/YbII/results/" + "exp_params.csv", dtype=str, delimiter=",")
 
-    # Filter to include only files, not directories
-    file_names = [file for file in file_names if os.path.isfile(os.path.join(dir, file))]
-    # Further filter to find files ending with '_bg'
-    bg_files = [file for file in file_names if file.endswith("_bg.bmp")]
+    # # Get a list of file names in the directory
+    # file_names = os.listdir(dir)
+
+    # # Filter to include only files, not directories
+    # file_names = [file for file in file_names if os.path.isfile(os.path.join(dir, file))]
+    # # Further filter to find files ending with '_bg'
+    # bg_files = [file for file in file_names if file.endswith("_bg.bmp")]
 
     atom_nums = []
     f_data_list = []
 
-    for f in bg_files:
+    for f in range(exp_params.shape[0]):
 
-        f_data = f[:-7] + ".bmp"
-        f_bg = f
+        f_data = exp_params[f, 0]
+        f_bg = exp_params[f, 0][: -4] + "_bg.bmp"
 
         img_data = imageio.imread(dir + f_data)
         img_bg = imageio.imread(dir + f_bg)
 
-        img_res, x0, y0, wx, wy, bgx, bgy, x_data, x_fit, y_data, y_fit, atom_num = plotMOTNumber(img_data, img_bg, f_data, t_exp, df, p, d0, fit_override, param_init, constraints, plot_save)
+        img_res, x0, y0, wx, wy, bgx, bgy, x_data, x_fit, y_data, y_fit, atom_num = plotMOTNumber(img_data, img_bg, f_data, float(exp_params[f, 1]), df, p, d0, fit_override, param_init, constraints, plot_save)
 
         atom_nums.append(atom_num)
         f_data_list.append(f_data)
@@ -251,7 +253,6 @@ def fit_data(dir, t_exp, df, p, d0, fit_override=None, param_init=None, constrai
     atom_nums = np.array([atom_nums])
     f_data_list = np.array([f_data_list])
 
-    exp_params = np.loadtxt("C:/Users/aak6a/YbII/results/" + "exp_params.csv", dtype=str, delimiter=",")
     exp_params = np.concatenate((exp_params, atom_nums.T), axis=1)
     exp_params = np.concatenate((exp_params, f_data_list.T), axis=1)
     exp_params = np.savetxt("C:/Users/aak6a/YbII/results/" + "exp_params.csv", exp_params, delimiter=",", fmt='%s')
