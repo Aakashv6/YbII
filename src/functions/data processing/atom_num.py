@@ -214,10 +214,10 @@ def var_extract(dir, keywords=[["exp", 1e-3], ["power", 1e-3], ["fL", 1e12], ["d
 
         exp_params.append(vars_file)
 
-        exp_params = np.array(exp_params)
+    exp_params = np.array(exp_params)
 
-        if save_params:
-            np.savetxt("C:/Users/aak6a/YbII/results/" + "exp_params.csv", exp_params, delimiter=",")
+    if save_params:
+        np.savetxt("C:/Users/aak6a/YbII/results/" + "exp_params.csv", exp_params, delimiter=",")
 
     print(exp_params)
 
