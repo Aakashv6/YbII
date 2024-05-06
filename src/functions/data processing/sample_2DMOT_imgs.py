@@ -81,7 +81,7 @@ def mot2d_img_gen(dir="C:/Users/aak6a/YbII/data/generated_2DMOT_images/", num_im
         im_sign = Image.fromarray(img_sig).convert("L")
         im_bg = Image.fromarray(img_bg).convert("L")
 
-        im_sig_name = dir + "2DMOT_exp_" + str(i).zfill(2) + "_0_ms_power_" + str(2*i).zfill(3) + "_9_mW_fL_" + str(2*i).zfill(3) + "_" + str(5*i).zfill(3) + "_THz.bmp"
+        im_sig_name = dir + "2DMOT_exp_" + str(i).zfill(2) + "_0_ms_power_" + str(2*i).zfill(3) + "_6_mW_fL_" + str(2*i).zfill(3) + "_" + str(5*i).zfill(3) + "_THz.bmp"
         im_bg_name = dir + "2DMOT_exp_" + str(i).zfill(2) + "_0_ms_power_" + str(2*i).zfill(3) + "_6_mW_fL_" + str(2*i).zfill(3) + "_" + str(5*i).zfill(3) + "_THz_bg.bmp"
 
         im_sign.save(im_sig_name)

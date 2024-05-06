@@ -199,27 +199,26 @@ def var_extract(dir, keywords=[["exp", 1e-3], ["power", 1e-3], ["fL", 1e12], ["d
         vars_file = []
 
         split_vars = f_data.split("_")
+
         vars_file.append(f_data)
 
         for k in keywords:
             try:
                 s = split_vars.index(k[0]) + 1
                 e = s + 2
+                val = float(".".join(split_vars[s : e])) * k[1]
+                vars_file.append(val)
+
             except:
                 print("Parameter not in the file name")
                 continue
-
-            val = float(".".join(split_vars[s : e])) * k[1]
-            vars_file.append(val)
 
         exp_params.append(vars_file)
 
     exp_params = np.array(exp_params)
 
     if save_params:
-        np.savetxt("C:/Users/aak6a/YbII/results/" + "exp_params.csv", exp_params, delimiter=",")
-
-    print(exp_params)
+        np.savetxt("C:/Users/aak6a/YbII/results/" + "exp_params.csv", exp_params, delimiter=",", fmt='%s')
 
 # var_extract("C:/Users/aak6a/YbII/data/generated_2DMOT_images/")
 
@@ -233,6 +232,9 @@ def fit_data(dir, t_exp, df, p, d0, fit_override=None, param_init=None, constrai
     # Further filter to find files ending with '_bg'
     bg_files = [file for file in file_names if file.endswith("_bg.bmp")]
 
+    atom_nums = []
+    f_data_list = []
+
     for f in bg_files:
 
         f_data = f[:-7] + ".bmp"
@@ -241,9 +243,20 @@ def fit_data(dir, t_exp, df, p, d0, fit_override=None, param_init=None, constrai
         img_data = imageio.imread(dir + f_data)
         img_bg = imageio.imread(dir + f_bg)
 
-        atom_num = plotMOTNumber(img_data, img_bg, f_data, t_exp, df, p, d0, fit_override, param_init, constraints, plot_save)
+        img_res, x0, y0, wx, wy, bgx, bgy, x_data, x_fit, y_data, y_fit, atom_num = plotMOTNumber(img_data, img_bg, f_data, t_exp, df, p, d0, fit_override, param_init, constraints, plot_save)
 
-# fit_data("C:/Users/aak6a/YbII/data/generated_2DMOT_images/", 17150e-6, 2 * np.pi * 751.5270397e12, 80e-3, 350e-3)
+        atom_nums.append(atom_num)
+        f_data_list.append(f_data)
+
+    atom_nums = np.array([atom_nums])
+    f_data_list = np.array([f_data_list])
+
+    exp_params = np.loadtxt("C:/Users/aak6a/YbII/results/" + "exp_params.csv", dtype=str, delimiter=",")
+    exp_params = np.concatenate((exp_params, atom_nums.T), axis=1)
+    exp_params = np.concatenate((exp_params, f_data_list.T), axis=1)
+    exp_params = np.savetxt("C:/Users/aak6a/YbII/results/" + "exp_params.csv", exp_params, delimiter=",", fmt='%s')
+
+fit_data("C:/Users/aak6a/YbII/data/generated_2DMOT_images/", 17150e-6, 2 * np.pi * 751.5270397e12, 80e-3, 350e-3)
 
 def dark_count():
     # Using fitting constant
