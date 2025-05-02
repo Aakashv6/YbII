@@ -238,6 +238,7 @@ def fit_data(dir, t_exp, df, p, d0, fit_override=None, param_init=None, constrai
     f_data_list = []
 
     for f in range(exp_params.shape[0]):
+    for f in range(exp_params.shape[0]):
 
         f_data = exp_params[f, 0]
         f_bg = exp_params[f, 0][:-4] + "_bg.bmp"
