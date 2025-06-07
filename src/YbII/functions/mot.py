@@ -2,12 +2,14 @@
 import datetime, imageio
 import numpy as np
 import matplotlib.pyplot as plt
-from PIL import Image
-from io import BytesIO
 import plotly.io as pio
 pio.renderers.default = "browser"
 import plotly.graph_objects as go
 import pandas as pd
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from PIL import Image
+from io import BytesIO
+from scipy.optimize import curve_fit
 from YbII.constants import const
 from YbII.functions import func
 from YbII.functions import gaussian2d
@@ -45,12 +47,12 @@ def rhoMOT(f, p, mot_type):
     if mot_type == 'BLUE2D':
         s0 = getMOTS0(p, 'BLUE2D')
         omega_l = 2 * np.pi * f
-        delta = omega_l - const.w0_1s0_1p1_32_06042025
+        delta = omega_l - const.w0_1s0_1p1_32_06052025
         gamma = const.gamma_1s0_1p1
     elif mot_type == 'BLUE3D':
         s0 = getMOTS0(p, 'BLUE3D')
         omega_l = 2 * np.pi * (f + 10e6)
-        delta = omega_l - const.w0_1s0_1p1_32_06042025
+        delta = omega_l - const.w0_1s0_1p1_32_06052025
         gamma = const.gamma_1s0_1p1
     elif mot_type == 'GREEN3D':
         s0 = getMOTS0(p, 'GREEN3D')
@@ -121,104 +123,138 @@ def getAtomNumber(img: np.ndarray, t_exp: float, f: float, p: float, wavelength:
     gamma_tot = I_sum * ppi / eff / t_exp 
     return gamma_tot / gamma_atom
 
-def getImagedAtomNumber(img: np.ndarray, img_bg: np.ndarray, t_exp: float, freq: float, p: float, wavelength: str, fit_param: dict[str, float | None], camera: str, mot_type: str, background: bool) -> tuple:
+def getImagedAtomNumber(img: np.ndarray, img_bg: np.ndarray | None, t_exp: float, freq: float, p: float, wavelength: str, fit_param: dict[str, float | None] | None, camera: str, mot_type: str) -> tuple[np.ndarray, int, int, np.ndarray, dict[str, float], int, float, int, int, np.ndarray, np.ndarray, np.ndarray, float]:  
     """
     get the number of imaged MOT and fit the MOT size from the image data. Note that this code needs to be modified for colored images. 
     Args:
         img (np.ndarray): MOT image data, usually loaded via imageio.imread()
-        img_bg (np.ndarray): MOT background data
+        img_bg (np.ndarray): MOT background data or None if no background subtraction is needed, usually loaded via imageio.imread()
         t_exp (float): exposure time of the imaging camera in seconds
         freq (float): for the bMOT, it is wavemeter frequency reading of the 399; for the gMOT, it is the FM detuning on the green AOM, centered around 96.9375 MHz, all in Hz
         p (float): measured total power before all entry VPs, in W
         d0 (float): distance from the MOT to the first lens, in meters. As of 06/02/25, it is 0.395 m for the 2DMOT & 0.2 m for both 3DMOTs.
-        background (bool): choose whether to subtract the background image from the MOT image data or not
         wavelength (str): 'BLUE' or 'GREEN', for the blue or green MOT, respectively
-        fit_param (dict[str, float | None]): a dictionary with fit parameter names as its keys and initial values as its values. Can enter all or just a few parameters. The parameters are {'x0', 'y0', 'box_x', 'box_y'}.
-        camera (str): .  ''.
-        mot_type (str): .  ''.
+        fit_param (dict[str, float | None] or None): a dictionary with fit parameter names as its keys and initial values as its values. Can enter all or just a few parameters, or None to let the fitter decide. The parameters are {'x0', 'y0', 'box_x', 'box_y', 'theta', 'sx', 'sy'}.
+        camera (str): Supported camera types, options include 'acA3800 14um' and 'flir.
+        mot_type (str): Type of the imaged MOT, options include 'BLUE2D', 'BLUE3D', and 'GREEN3D'.
+
+    Raises:
+        ValueError: Invalid camera. Use 'acA3800 14um' or 'flir'.
 
     Returns:
-        _type_: _description_
+        tuple: A tuple containing the following elements:
+            - img_res_og (np.ndarray): The original image data after background subtraction.
+            - x0_og (int): The x-coordinate of the center of the MOT in pixels, w.r.t. the original image.
+            - y0_og (int): The y-coordinate of the center of the MOT in pixels, w.r.t. the original image.
+            - img_res (np.ndarray): The cropped image data around the MOT.
+            - fit_param (dict[str, float]): The fitted parameters from the Gaussian fit.
+            - bin_size (int): The binning size used for fitting.
+            - pixel_size (float): The pixel size in mm^2.
+            - box_x (int): Half-width of the ROI box around the MOT in pixels.
+            - box_y (int): Half-height of the ROI box around the MOT in pixels.
+            - x_bin (np.ndarray): Binned x-coordinates for plotting.
+            - y_bin (np.ndarray): Binned y-coordinates for plotting.
+            - d_bin (np.ndarray): Binned depth values for plotting.
+            - atom_num (float): Estimated number of atoms in the imaged MOT.
     """
-    if background:
-        img_res = np.abs(np.array(img, dtype=float) - np.array(img_bg, dtype=float))
-        img_res[img_res < 0] = 0
-    else:
-        img_res = img
-    img_res_og = img_res.copy() # keep the original image for plotting
-
-    bin_size = 10 # binning 10 pixels to 1 for faster fitting
-    if mot_type == 'BLUE2D':
-        mag = const.f0_mot2d / const.f1_mot2d # magnification of the 2D MOT imaging setup
-        box_x = 75 if fit_param == None or 'box_x' not in fit_param.keys() or fit_param['box_x'] is None else fit_param['box_x']
-        box_y = 75 if fit_param == None or 'box_y' not in fit_param.keys() or fit_param['box_y'] is None else fit_param['box_y']
-    else: # 'BLUE3D' 'GREEN3D'
-        mag = const.f0_mot3d / const.f1_mot3d
-        box_x = 100 if fit_param == None or 'box_x' not in fit_param.keys() or fit_param['box_x'] is None else fit_param['box_x']
-        box_y = 100 if fit_param == None or 'box_y' not in fit_param.keys() or fit_param['box_y'] is None else fit_param['box_y']
-    if camera == 'acA3800 14um':
-        pixel_size = (const.acA3800_14um['pixel_size'] / mag) ** 2
-    elif camera == 'flir':
-        pixel_size = (const.flir['pixel_size'] / mag) ** 2
     x0 = None
     y0 = None
+    pixel_size = None
+    bin_size = 10 # binning 10 pixels to 1 for faster fitting
+    if img_bg is not None: img_res = func.getBgsub(img, img_bg)
+    else: img_res = img
+    img_res_og = img_res.copy() # keep the original image for plotting
+    if fit_param is None: fit_param = {'x0': None, 'y0': None, 'box_x': None, 'box_y': None, 'theta': None, 'sx': None, 'sy': None, 'theta': None}
+    # if any of the fit parameters are not provided, set them to None
+    if 'box_x' not in fit_param: fit_param['box_x'] = None
+    if 'box_y' not in fit_param: fit_param['box_y'] = None
+    if 'x0' not in fit_param: fit_param['x0'] = None
+    if 'y0' not in fit_param: fit_param['y0'] = None
+    if 'sx' not in fit_param: fit_param['sx'] = None
+    if 'sy' not in fit_param: fit_param['sy'] = None
+    if 'theta' not in fit_param: fit_param['theta'] = None
+    if mot_type == 'BLUE2D':
+        mag = const.f0_mot2d / const.f1_mot2d # magnification of the 2D MOT imaging setup
+        box_x = 75 if 'box_x' not in fit_param or fit_param['box_x'] is None else fit_param['box_x']
+        box_y = 75 if 'box_y' not in fit_param or fit_param['box_y'] is None else fit_param['box_y']
+    else: # 'BLUE3D' 'GREEN3D'
+        mag = const.f0_mot3d / const.f1_mot3d
+        box_x = 100 if 'box_x' not in fit_param or fit_param['box_x'] is None else fit_param['box_x']
+        box_y = 100 if 'box_y' not in fit_param or fit_param['box_y'] is None else fit_param['box_y']
+    if camera == 'acA3800 14um': pixel_size = (const.acA3800_14um['pixel_size'] / mag) ** 2
+    elif camera == 'flir': pixel_size = (const.flir['pixel_size'] / mag) ** 2
+    else: 
+        raise ValueError("Invalid camera. Use 'acA3800 14um' or 'flir'.")
     # if fit_param is not None, try to extract x0 and y0 from it
-    if fit_param != None:
-        x0 = fit_param['x0'] if fit_param['x0'] is not None else None
-        y0 = fit_param['y0'] if fit_param['y0'] is not None else None
+    if 'x0' in fit_param and fit_param['x0'] != None: x0 = fit_param['x0'] 
+    if 'y0' in fit_param and fit_param['y0'] != None: y0 = fit_param['y0'] 
     # if x0 and y0 are provided, find the MOT ROI
-    if x0 is not None and y0 is not None:
+    if x0 is not None and y0 is not None: 
         img_res = img_res[y0-box_y:y0+box_y, x0-box_x:x0+box_x]
+        x0_og = x0
+        y0_og = y0
+        fit_param['x0'] = box_x * np.sqrt(pixel_size)
+        fit_param['y0'] = box_y * np.sqrt(pixel_size)
     # otherwise, find the center of the MOT from the fit
     else:
-        fit_params, x_bin, y_bin, d_bin = gaussian2d.lmfit_gaussian(img_res, pixel_size, bin_size, {'x0': None, 'y0': None})
-        x0 = int(fit_params['x0'].value / np.sqrt(pixel_size))
-        y0 = int(fit_params['y0'].value / np.sqrt(pixel_size))
+        fit_param, x_bin, y_bin, d_bin = gaussian2d.lmfit_gaussian(img_res, pixel_size, bin_size, fit_param)
+        x0 = int(fit_param['x0'].value / np.sqrt(pixel_size))
+        y0 = int(fit_param['y0'].value / np.sqrt(pixel_size))
         img_res = img_res[y0-box_y:y0+box_y, x0-box_x:x0+box_x]
+        x0_og = x0
+        y0_og = y0
         x0 = box_x
         y0 = box_y
-
-    fit_params, x_bin, y_bin, d_bin = gaussian2d.lmfit_gaussian(img_res, pixel_size, bin_size, {'x0': x0, 'y0': y0})
+    fit_param, x_bin, y_bin, d_bin = gaussian2d.lmfit_gaussian(img_res, pixel_size, bin_size, fit_param)
 
     atom_num = getAtomNumber(img_res, t_exp, freq, p, wavelength, camera, mot_type)
 
     print('Atom number:', atom_num)
 
-    return img_res_og, img_res, fit_params, bin_size, pixel_size, box_x, box_y, x_bin, y_bin, d_bin, atom_num
+    return img_res_og, x0_og, y0_og, img_res, fit_param, bin_size, pixel_size, box_x, box_y, x_bin, y_bin, d_bin, atom_num
 
-def plotMOTNumber(img, img_bg, t_exp, freq, p, wavelength, fit_param, camera, mot_type, filename, background=True, fit_interact=False, show_fit=True):
+def plotMOTNumber(img: np.ndarray, img_bg: np.ndarray | None, t_exp: float, freq: float, p: float, wavelength: str, fit_param: dict[str, float | None] | None, camera: str, mot_type: str, filename: str, fit_interact: bool=False, show_fit: bool=True) -> tuple[np.ndarray, float, plt.Figure]:
     """
-    _summary_
+    Plot the number of atoms in the imaged MOT and fit the MOT size from the image data.
 
     Args:
-        img (_type_): _description_
-        img_bg (_type_): _description_
-        t_exp (_type_): _description_
-        freq (_type_): _description_
-        p (_type_): _description_
-        d0 (_type_): _description_
-        background (_type_): _description_
-        wavelength (_type_): _description_
-        fit_param (_type_): _description_
-        camera (str): _description_.
-        mot_type (str): _description_.
-        filename (str): _description_.
+        img (np.ndarray): MOT image data, usually loaded via imageio.imread()
+        img_bg (np.ndarray | None): MOT background data, usually loaded via imageio.imread(). If None, no background subtraction is performed.
+        t_exp (float): exposure time of the imaging camera in seconds
+        freq (float): for the bMOT, it is wavemeter frequency reading of the 399; for the gMOT, it is the FM detuning on the green AOM, centered around 96.9375 MHz, all in Hz
+        p (float): power of the MOT beam before all entry VPs, in W
+        wavelength (str): 'BLUE' or 'GREEN', for the blue or green MOT, respectively
+        fit_param (dict[str, float  |  None] | None): fit parameters for the Gaussian fit. If None, default values are used. The keys are:
+            'x0': x-coordinate of the center (default: None, will be set to the x-coordinate of the maximum value in `img_res`)
+            'y0': y-coordinate of the center (default: None, will be set to the y-coordinate of the maximum value in `img_res`)
+            'box_x': half-width of the ROI box around the MOT in pixels (default: None, will be set to 75 for BLUE2D and 100 for BLUE3D/GREEN3D)
+            'box_y': half-height of the ROI box around the MOT in pixels (default: None, will be set to 75 for BLUE2D and 100 for BLUE3D/GREEN3D)
+            'theta': rotation angle of the Gaussian fit in radians (default: None)
+            'sx': width along the axis parallel to `theta` (default: None)
+            'sy': width along the axis perpendicular to `theta` (default: None)
+        camera (str): camera model, currently supports 'acA3800 14um' and 'flir'.
+        mot_type (str): type of the MOT, currently supports 'BLUE2D', 'BLUE3D', and 'GREEN3D'.
+        filename (str): filename of the signal image to be printed on the plot. 
+        fit_interact (bool, optional): Whether to launch the interactive ROI plot or not. Defaults to False.
+        show_fit (bool, optional): Whether to display the fitting parameter and the fit or not. Defaults to True.
 
     Returns:
-        _type_: _description_
+        tuple: A tuple containing the following elements:
+            - img_res_og (np.ndarray): The original image data after background subtraction.
+            - atom_num (float): Estimated number of atoms in the imaged MOT.
+            - fig (matplotlib.figure.Figure): The figure object containing the plot of the imaged MOT and the fitted Gaussian.
     """
-    img_res_og, img_res, fit_params, bin_size, pixel_size, box_x, box_y, x_bin, y_bin, d_bin, atom_num = getImagedAtomNumber(img, img_bg, t_exp, freq, p, wavelength, fit_param, camera=camera, mot_type=mot_type, background=background)
+
+    img_res_og, x0_og, y0_og, img_res, fit_param, bin_size, pixel_size, box_x, box_y, x_bin, y_bin, d_bin, atom_num = getImagedAtomNumber(img, img_bg, t_exp, freq, p, wavelength, fit_param, camera=camera, mot_type=mot_type)
 
     # rotate the og by 180 degrees
-    # img_res_og = np.rot90(img_res_og, 2)
-
-    A = fit_params['A'].value
-    B = fit_params['B'].value
-    sx = fit_params['sx'].value
-    sy = fit_params['sy'].value
-    x0 = fit_params['x0'].value
-    y0 = fit_params['y0'].value
-    th = fit_params['theta'].value
+    A = fit_param['A'].value
+    B = fit_param['B'].value
+    sx = fit_param['sx'].value
+    sy = fit_param['sy'].value
+    x0 = fit_param['x0'].value
+    y0 = fit_param['y0'].value
+    th = fit_param['theta'].value
     wx = sx * np.sqrt(2)
     wy = sy * np.sqrt(2)
     u = np.linspace(0, img_res.shape[1], img_res.shape[1] // bin_size) * np.sqrt(pixel_size)
@@ -227,43 +263,72 @@ def plotMOTNumber(img, img_bg, t_exp, freq, p, wavelength, fit_param, camera, mo
     y = np.outer(np.ones(np.size(u)), v)
     z = func.gaussian2d(x, y, th, A, B, x0, y0, sx, sy)
 
-    fig, axs = plt.subplots(1, 2, figsize=(5, 5), dpi=300)
-    axs[0].imshow(img_res_og, vmin=0, vmax=100)
+    fig, axs = plt.subplots(1, 2, figsize=(6, 4), dpi=300)
+    im = axs[0].imshow(img_res_og, vmin=0, vmax=255)
     axs[0].set_xlim([0, img_res_og.shape[1]])
     axs[0].set_ylim([0, img_res_og.shape[0]])
     axs[0].set_xlabel('Pixel')
     axs[0].set_ylabel('Pixel')
+    divider = make_axes_locatable(axs[0])
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    fig.colorbar(im, ax=axs[0], label='Bit depth', cax=cax)
 
-    x1, x2, y1, y2 = x0-box_x, x0+box_x, y0-box_y, y0+box_y
+    x1, x2, y1, y2 = x0_og-box_x, x0_og+box_x, y0_og-box_y, y0_og+box_y
 
     axins = axs[0].inset_axes([0.6, 0.6, 0.3, 0.3], xlim=(x1, x2), ylim=(y1, y2), xticklabels=[], yticklabels=[])
-    axins.imshow(img_res, vmin=0, vmax=100, origin='lower', extent=(x1, x2, y1, y2))
+    axins.imshow(img_res, vmin=0, vmax=255, origin='lower', extent=(x1, x2, y1, y2))
     axs[0].indicate_inset_zoom(axins, edgecolor="black")
     # turn off the grid for inset
     axins.grid(False)
     axins.set_xticks([])
     axins.set_yticks([])
 
-    scatter = go.Scatter3d(x=x_bin, y=y_bin, z=d_bin, mode='markers', marker=dict(size=2))
+    x_center = img_res.shape[1] // bin_size // 2
+    y_center = img_res.shape[0] // bin_size // 2
+    x_slice = z[:, x_center]  # Slice along y=0
+    y_slice = z[y_center, :]  # Slice along x=0
+
+    # Fit Gaussian to x_slice
+    x_vals = np.linspace(0, img_res.shape[0] * np.sqrt(pixel_size), len(x_slice))
+    popt_x, _ = curve_fit(func.gaussian, x_vals, x_slice, p0=[np.max(x_slice), x_vals[len(x_vals) // 2], 1, np.min(x_slice)])
+
+    # Fit Gaussian to y_slice
+    y_vals = np.linspace(0, img_res.shape[1] * np.sqrt(pixel_size), len(y_slice))
+    popt_y, _ = curve_fit(func.gaussian, y_vals, y_slice, p0=[np.max(y_slice), y_vals[len(y_vals) // 2], 1, np.min(y_slice)])
+
+    # Generate fitted Gaussian data
+    x_fit = func.gaussian(x_vals, *popt_x)
+    y_fit = func.gaussian(y_vals, *popt_y)
+
+    scatter = go.Scatter3d(x=x_bin, y=y_bin, z=d_bin, mode='markers', marker=dict(size=5), name='Data points')
     if show_fit:
-        opacity = 0.8
+        opacity = 0.25
     else:
         opacity = 0.0
-    surface = go.Surface(x=x, y=y, z=z, colorscale='Viridis', opacity=opacity, showscale=False)
-    fit_fig = go.Figure(data=[scatter, surface], layout=go.Layout(scene=dict(aspectmode='cube')))
+    surface = go.Surface(x=x, y=y, z=z, colorscale='Viridis', opacity=opacity, showscale=True, colorbar=dict(title='Bit depth'))
+    trace_x = go.Scatter3d(x=x_vals, y=np.full_like(x_vals, y_center * np.sqrt(pixel_size) * bin_size), z=x_fit, mode='lines', line=dict(color='red', width=3), name='X=0 trace fit')
+    trace_y = go.Scatter3d(x=np.full_like(y_vals, x_center * np.sqrt(pixel_size) * bin_size), y=y_vals, z=y_fit, mode='lines', line=dict(color='blue', width=3), name='Y=0 trace fit')
+
+    fit_fig = go.Figure(data=[scatter, surface, trace_x, trace_y], layout=go.Layout(scene=dict(aspectmode='cube')))
     fit_fig.update_layout(
         width=900, height=900,
         scene=dict(
-            xaxis_title='X (mm)',
-            yaxis_title='Y (mm)',
+            xaxis_title='Y (mm)',
+            yaxis_title='X (mm)',
             xaxis=dict(range=[0, img_res.shape[1] * np.sqrt(pixel_size)] ),
             yaxis=dict(range=[0, img_res.shape[0] * np.sqrt(pixel_size)] ),
-            camera=dict(
-                eye=dict(x=1, y=1, z=1.75)  # Adjust the camera position for better view
-            )
-        )
+            camera=dict(eye=dict(x=1.1, y=1.1, z=1.75)), 
+        ), 
+        legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=0.01
+        ), 
+        font=dict(size=15)
     )
-    fit_params.pretty_print()
+
+    fit_param.pretty_print()
     if fit_interact:
         fit_fig.show()
     buf = BytesIO()
@@ -273,12 +338,12 @@ def plotMOTNumber(img, img_bg, t_exp, freq, p, wavelength, fit_param, camera, mo
     axs[1].axis('off')
     axs[1].set_xticks([])
     axs[1].set_yticks([])
-    axs[1].imshow(fit_fig, aspect='equal', extent=[0, 1, 0, 1], origin='upper')
+    axs[1].imshow(fit_fig, aspect='equal', extent=[0, 1, 0, 1], origin='upper', vmin=0, vmax=255)
     axs[1].set_xlim(0, 1)
     axs[1].set_ylim(0, 1)
 
-    fit_str = f" (x0={x0:.0f} px, y0={y0:.0f} px, wx={wx:.1f} mm, wy={wy:.1f} mm, A={A:.1f}, B={B:.1f}, theta={th:.2f} rad)\n" if show_fit else ""
-    fig.suptitle(mot_type + f'#Atom ~ {atom_num:.1e}\n' + fit_str + f'ROI size: ({box_x * 2:.0f} px, {box_y * 2:.0f} px)=({box_x * 2 * np.sqrt(pixel_size):.1f}mm, {box_y * 2 * np.sqrt(pixel_size):.2f}mm)\n' + 'File name: ' + filename, fontsize=5)
+    fit_str = f" (x0={x0_og:.0f} px, y0={y0_og:.0f} px, wx={wx:.2f} mm, wy={wy:.2f} mm, A={A:.1f}, B={B:.1f}, theta={th:.2f} rad)\n" if show_fit else ""
+    fig.suptitle(mot_type + f'#Atom ~ {atom_num:.1e}\n' + fit_str + f'ROI size: ({box_x * 2:.0f} px, {box_y * 2:.0f} px)=({box_x * 2 * np.sqrt(pixel_size):.2f}mm, {box_y * 2 * np.sqrt(pixel_size):.2f}mm)\n' + 'File name: ' + filename, fontsize=8)
     fig.tight_layout()
     plt.close()
     return img_res, atom_num, fig

@@ -23,6 +23,8 @@ w0_1s0_1p1_32 = 2 * np.pi * 751.527103 * 10**12 # wavemeter reading
 w0_1s0_1p1_32_2025 = 2 * np.pi * (751.527103 * 10**12 - 100e6) # wavemeter reading
 w0_1s0_1p1_32_june2025 = 2 * np.pi * (751.527103 * 10**12 - 100e6 + 50e6)# wavemeter reading
 w0_1s0_1p1_32_06042025 = w0_1s0_1p1_32_2025 + 2 * np.pi * 25e6 # 399 resonance estimate after the June HVAC failure
+w0_1s0_1p1_32_06052025 = w0_1s0_1p1_32_06042025 - 2 * np.pi * 6e6 # 399 resonance estimate after the June HVAC failure
+
 
 
 # 05/28/25 Estimated from YbI CMOT AOM frequency, assuming gamma/2 red detuning
