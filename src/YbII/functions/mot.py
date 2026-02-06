@@ -47,12 +47,12 @@ def rhoMOT(f, p, mot_type):
     if mot_type == 'BLUE2D':
         s0 = getMOTS0(p, 'BLUE2D')
         omega_l = 2 * np.pi * f
-        delta = omega_l - const.w0_1s0_1p1_32_06052025
+        delta = omega_l - const.w0_1s0_1p1_32_06122025
         gamma = const.gamma_1s0_1p1
     elif mot_type == 'BLUE3D':
         s0 = getMOTS0(p, 'BLUE3D')
         omega_l = 2 * np.pi * (f + 10e6)
-        delta = omega_l - const.w0_1s0_1p1_32_06052025
+        delta = omega_l - const.w0_1s0_1p1_32_06122025
         gamma = const.gamma_1s0_1p1
     elif mot_type == 'GREEN3D':
         s0 = getMOTS0(p, 'GREEN3D')
@@ -93,15 +93,28 @@ def getAtomNumber(img: np.ndarray, t_exp: float, f: float, p: float, wavelength:
     d0 = const.d0_mot2d_end if mot_type == 'BLUE2D' else const.d0_mot3d # distance from the MOT to the first lens, in meters
     ################################################
     eff = (0.0254/2) ** 2 / (4 * d0 ** 2) # collection efficiency of the imaging setup, assuming using 1 inch lens
-    if camera == 'acA3800 14um':
+    if camera == 'acA3800 14um' or camera == 'acA3800-14um':
         if wavelength == 'BLUE':
             QE = const.acA3800_14um['BLUE']['QE'] # quantum efficiency of acA3800 for 399 nm light  
         elif wavelength == 'GREEN':
             QE = const.acA3800_14um['GREEN']['QE'] # quantum efficiency of acA3800 for 556 nm light
         sat_cap = const.acA3800_14um['sat_cap'] # saturation capacity of the camera
         bit_depth = 255 # bit depth of the camera
-    elif camera == 'acA3800 14uc':
-        raise ValueError('acA3800 14uc parameters not fully implemented')
+    elif camera == 'acA3800 14uc' or camera == 'acA3800-14uc':
+        eff = (0.0254) ** 2 / (4 * (d0 + 40e-3) ** 2) # collection efficiency of the imaging setup with 2 inch lens and 30 mm extension
+        if wavelength == 'BLUE':
+            QE = const.acA3800_14uc['BLUE']['QE'] # quantum efficiency of acA3800 for 399 nm light
+        elif wavelength == 'GREEN':
+            QE = const.acA3800_14uc['GREEN']['QE'] # quantum efficiency of acA3800 for 556 nm light
+        sat_cap = const.acA3800_14uc['sat_cap'] # saturation capacity of the camera
+        bit_depth = 255 # bit depth of the camera
+    elif camera == 'acA1440 220um' or camera == 'acA1440-220um':
+        if wavelength == 'BLUE':
+            QE = const.acA1440_220um['BLUE']['QE'] # quantum efficiency of acA1440 for 399 nm light
+        elif wavelength == 'GREEN':
+            QE = const.acA1440_220um['GREEN']['QE'] # quantum efficiency of acA1440 for 556 nm light
+        sat_cap = const.acA1440_220um['sat_cap'] # saturation capacity of the camera
+        bit_depth = 255 # bit depth of the camera
     elif camera == 'flir':
         if wavelength == 'BLUE':
             QE = const.flir['BLUE']['QE'] # quantum efficiency of the flir camera for 399 nm light 
@@ -120,7 +133,9 @@ def getAtomNumber(img: np.ndarray, t_exp: float, f: float, p: float, wavelength:
     else:
         raise ValueError("Invalid wavelength. Use 'BLUE' or 'GREEN'.")
     print('rhoMOT:', rhoMOT(f, p, mot_type))
+    print('gamma_atom:', gamma_atom)
     gamma_tot = I_sum * ppi / eff / t_exp 
+    print('I_sum:', I_sum)
     return gamma_tot / gamma_atom
 
 def getImagedAtomNumber(img: np.ndarray, img_bg: np.ndarray | None, t_exp: float, freq: float, p: float, wavelength: str, fit_param: dict[str, float | None] | None, camera: str, mot_type: str) -> tuple[np.ndarray, int, int, np.ndarray, dict[str, float], int, float, int, int, np.ndarray, np.ndarray, np.ndarray, float]:  
@@ -181,10 +196,12 @@ def getImagedAtomNumber(img: np.ndarray, img_bg: np.ndarray | None, t_exp: float
         mag = const.f0_mot3d / const.f1_mot3d
         box_x = 100 if 'box_x' not in fit_param or fit_param['box_x'] is None else fit_param['box_x']
         box_y = 100 if 'box_y' not in fit_param or fit_param['box_y'] is None else fit_param['box_y']
-    if camera == 'acA3800 14um': pixel_size = (const.acA3800_14um['pixel_size'] / mag) ** 2
+    if camera == 'acA3800 14um' or camera == 'acA3800-14um': pixel_size = (const.acA3800_14um['pixel_size'] / mag) ** 2
     elif camera == 'flir': pixel_size = (const.flir['pixel_size'] / mag) ** 2
+    elif camera == 'acA1440 220um' or camera == 'acA1440-220um': pixel_size = (const.acA1440_220um['pixel_size'] / mag) ** 2
+    elif camera == 'acA3800 14uc' or camera == 'acA3800-14uc': pixel_size = (const.acA3800_14uc['pixel_size'] / mag) ** 2
     else: 
-        raise ValueError("Invalid camera. Use 'acA3800 14um' or 'flir'.")
+        raise ValueError("Invalid camera. Use 'acA3800 14um', 'acA1440 220um', or 'flir'.")
     # if fit_param is not None, try to extract x0 and y0 from it
     if 'x0' in fit_param and fit_param['x0'] != None: x0 = fit_param['x0'] 
     if 'y0' in fit_param and fit_param['y0'] != None: y0 = fit_param['y0'] 
@@ -288,17 +305,16 @@ def plotMOTNumber(img: np.ndarray, img_bg: np.ndarray | None, t_exp: float, freq
     x_slice = z[:, x_center]  # Slice along y=0
     y_slice = z[y_center, :]  # Slice along x=0
 
-    # Fit Gaussian to x_slice
     x_vals = np.linspace(0, img_res.shape[0] * np.sqrt(pixel_size), len(x_slice))
-    popt_x, _ = curve_fit(func.gaussian, x_vals, x_slice, p0=[np.max(x_slice), x_vals[len(x_vals) // 2], 1, np.min(x_slice)])
-
-    # Fit Gaussian to y_slice
     y_vals = np.linspace(0, img_res.shape[1] * np.sqrt(pixel_size), len(y_slice))
-    popt_y, _ = curve_fit(func.gaussian, y_vals, y_slice, p0=[np.max(y_slice), y_vals[len(y_vals) // 2], 1, np.min(y_slice)])
-
-    # Generate fitted Gaussian data
-    x_fit = func.gaussian(x_vals, *popt_x)
-    y_fit = func.gaussian(y_vals, *popt_y)
+    trace_x, trace_y = None, None
+    if show_fit:
+        popt_x, _ = curve_fit(func.gaussian, x_vals, x_slice, p0=[np.max(x_slice), x_vals[len(x_vals) // 2], 1, np.min(x_slice)])
+        popt_y, _ = curve_fit(func.gaussian, y_vals, y_slice, p0=[np.max(y_slice), y_vals[len(y_vals) // 2], 1, np.min(y_slice)])
+        x_fit = func.gaussian(x_vals, *popt_x)
+        y_fit = func.gaussian(y_vals, *popt_y)
+        trace_x = go.Scatter3d(x=x_vals, y=np.full_like(x_vals, y_center * np.sqrt(pixel_size) * bin_size), z=x_fit, mode='lines', line=dict(color='red', width=3), name='X=0 trace fit')
+        trace_y = go.Scatter3d(x=np.full_like(y_vals, x_center * np.sqrt(pixel_size) * bin_size), y=y_vals, z=y_fit, mode='lines', line=dict(color='blue', width=3), name='Y=0 trace fit')
 
     scatter = go.Scatter3d(x=x_bin, y=y_bin, z=d_bin, mode='markers', marker=dict(size=5), name='Data points')
     if show_fit:
@@ -306,10 +322,11 @@ def plotMOTNumber(img: np.ndarray, img_bg: np.ndarray | None, t_exp: float, freq
     else:
         opacity = 0.0
     surface = go.Surface(x=x, y=y, z=z, colorscale='Viridis', opacity=opacity, showscale=True, colorbar=dict(title='Bit depth'))
-    trace_x = go.Scatter3d(x=x_vals, y=np.full_like(x_vals, y_center * np.sqrt(pixel_size) * bin_size), z=x_fit, mode='lines', line=dict(color='red', width=3), name='X=0 trace fit')
-    trace_y = go.Scatter3d(x=np.full_like(y_vals, x_center * np.sqrt(pixel_size) * bin_size), y=y_vals, z=y_fit, mode='lines', line=dict(color='blue', width=3), name='Y=0 trace fit')
 
-    fit_fig = go.Figure(data=[scatter, surface, trace_x, trace_y], layout=go.Layout(scene=dict(aspectmode='cube')))
+    if show_fit:
+        fit_fig = go.Figure(data=[scatter, surface, trace_x, trace_y], layout=go.Layout(scene=dict(aspectmode='cube')))
+    else:
+        fit_fig = go.Figure(data=[scatter, surface], layout=go.Layout(scene=dict(aspectmode='cube')))
     fit_fig.update_layout(
         width=900, height=900,
         scene=dict(
@@ -343,7 +360,7 @@ def plotMOTNumber(img: np.ndarray, img_bg: np.ndarray | None, t_exp: float, freq
     axs[1].set_ylim(0, 1)
 
     fit_str = f" (x0={x0_og:.0f} px, y0={y0_og:.0f} px, wx={wx:.2f} mm, wy={wy:.2f} mm, A={A:.1f}, B={B:.1f}, theta={th:.2f} rad)\n" if show_fit else ""
-    fig.suptitle(mot_type + f'#Atom ~ {atom_num:.1e}\n' + fit_str + f'ROI size: ({box_x * 2:.0f} px, {box_y * 2:.0f} px)=({box_x * 2 * np.sqrt(pixel_size):.2f}mm, {box_y * 2 * np.sqrt(pixel_size):.2f}mm)\n' + 'File name: ' + filename, fontsize=8)
+    fig.suptitle(mot_type + f'#Atom ~ {atom_num:.1e}\n' + fit_str + f'ROI size: ({box_x * 2:.0f} px, {box_y * 2:.0f} px)=({box_x * 2 * np.sqrt(pixel_size) * 1000:.2f}mm, {box_y * 2 * np.sqrt(pixel_size) * 1000:.2f}mm)\n' + 'File name: ' + filename, fontsize=8)
     fig.tight_layout()
     plt.close()
     return img_res, atom_num, fig

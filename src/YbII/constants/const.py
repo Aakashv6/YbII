@@ -24,6 +24,7 @@ w0_1s0_1p1_32_2025 = 2 * np.pi * (751.527103 * 10**12 - 100e6) # wavemeter readi
 w0_1s0_1p1_32_june2025 = 2 * np.pi * (751.527103 * 10**12 - 100e6 + 50e6)# wavemeter reading
 w0_1s0_1p1_32_06042025 = w0_1s0_1p1_32_2025 + 2 * np.pi * 25e6 # 399 resonance estimate after the June HVAC failure
 w0_1s0_1p1_32_06052025 = w0_1s0_1p1_32_06042025 - 2 * np.pi * 6e6 # 399 resonance estimate after the June HVAC failure
+w0_1s0_1p1_32_06122025 = w0_1s0_1p1_32_06052025 - 2 * np.pi * 15e6 # 399 resonance estimate after the June HVAC failure
 
 
 
@@ -50,13 +51,35 @@ f0_mot3d = 200e-3 # focal length of the 1st lens in the 3D MOT setup
 f1_mot3d = 50e-3 # focal length of the 2nd lens in the 3D MOT setup
 
 acA3800_14um = {
-    'pixel_size': 1.67e-3, # pixel size in meters
+    'pixel_size': 1.67e-6, # pixel size in meters
     'sat_cap': 2800,
     'BLUE': {
         'QE': 0.42, 
     }, 
     'GREEN': {
         'QE': 0.37, 
+    }
+}
+
+acA3800_14uc = {
+    'pixel_size': 1.67e-6, # pixel size in meters
+    'sat_cap': 2800,
+    'BLUE': {
+        'QE': 0.025, # Not verified yet
+    }, 
+    'GREEN': {
+        'QE': 0.37, # Not verified yet
+    }
+}
+
+acA1440_220um = {
+    'pixel_size': 3.45e-6, # pixel size in meters
+    'sat_cap': 10531,
+    'BLUE': {
+        'QE': 0.4, 
+    }, 
+    'GREEN': {
+        'QE': 0.6, 
     }
 }
 

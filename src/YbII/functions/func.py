@@ -10,7 +10,7 @@ def splitDecimal(num: float) -> tuple:
     if num < 0:
         return (-int(np.round(np.abs(res[0][1]), 0)), int(np.round(np.abs(res[0][0]) * 10, 3)))
     else:
-        return (int(np.round(res[0][1], 0)), int(np.round(res[0][0], 3)))
+        return (int(np.round(res[0][1], 0)), int(np.round(res[0][0] * 10, 3)))
 # FYI, w = sqrt(2) * sigma
 
 FM_polynomial = np.array([6.19975510e-07,  5.50488951e-05, -8.78214143e-05, -1.09927015e-02,
@@ -35,21 +35,50 @@ def getFMVVec(vec_det):
     res = [(round(e[0], 2), e[1]) for e in list(zip(vec_det, x_val))]
     return res
 
-def getBgsub(img: plt.figure, bg: plt.figure, img_type: type=np.uint8):
+def getBgsub(
+    img: plt.figure,
+    bg: plt.figure,
+    img_type: type | np.dtype | None = None,
+):
     """
     Subtracts the background from the image.
-    
+
     Args:
         img (np.array): The image to be background subtracted.
         bg (np.array): The background image to be subtracted.
-    
+        img_type (np.dtype, optional): Desired dtype for the result. Defaults to the
+            dtype of ``img`` and converts Pillow's int32 representation of 16-bit PNGs
+            back to ``uint16`` to avoid losing dynamic range.
+
     Returns:
         np.array: The background-subtracted image.
     """
-    res = np.array(img, dtype=float) - np.array(bg, dtype=float)
-    res[res < 0] = 0
-    res = res.astype(img_type)
-    return res
+    img_arr = np.asarray(img)
+    bg_arr = np.asarray(bg)
+
+    if img_arr.shape != bg_arr.shape:
+        raise ValueError("img and bg must have the same shape.")
+
+    if img_type is None:
+        target_dtype = img_arr.dtype
+        if (
+            np.issubdtype(target_dtype, np.signedinteger)
+            and target_dtype.itemsize > 2
+        ):
+            # Pillow loads 16-bit PNGs as int32; check if the data actually fits
+            # inside uint16 so we can write out a genuine 16-bit image.
+            img_min = img_arr.min()
+            bg_min = bg_arr.min()
+            if img_min >= 0 and bg_min >= 0:
+                combined_max = max(img_arr.max(), bg_arr.max())
+                if combined_max <= np.iinfo(np.uint16).max:
+                    target_dtype = np.uint16
+    else:
+        target_dtype = np.dtype(img_type)
+
+    res = img_arr.astype(np.float64, copy=False) - bg_arr.astype(np.float64, copy=False)
+    np.maximum(res, 0, out=res)
+    return res.astype(target_dtype, copy=False)
 
 def exp_decay(x: np.array, a: float, b: float, c: float) -> np.array:
     """
